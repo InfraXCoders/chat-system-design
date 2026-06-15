@@ -1,4 +1,11 @@
-const WS_URL = "ws://localhost:3001";
+// Derive the WebSocket URL from the page's own location.
+// Served over http://<vps-ip>  → ws://<vps-ip>
+// Served over https://<domain> → wss://<domain>  (automatic when you add TLS)
+// Falls back to localhost:3001 when the file is opened directly from disk.
+const WS_URL =
+  location.protocol === "file:"
+    ? "ws://localhost:3001"
+    : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`;
 
 // Avatar palette — consistent colour per username
 const PALETTE = [
