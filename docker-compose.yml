@@ -16,7 +16,26 @@ services:
 
   app:
     build: .
-    # No public port — Nginx is the only entry point
+    expose:
+      - "3001"
+    environment:
+      PORT: 3001
+      DATABASE_URL: postgresql://chat:chat@postgres:5432/chatdb
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-change-this-in-production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Second Node instance — identical config, different container name.
+  # Nginx round-robins between app:3001 and app2:3001.
+  # Redis pub/sub keeps both instances in sync — every message reaches
+  # clients regardless of which instance they're connected to.
+  app2:
+    build: .
     expose:
       - "3001"
     environment:
