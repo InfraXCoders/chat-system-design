@@ -27,8 +27,9 @@ function dmRoomId(a, b) {
 }
 function isDm(room) { return room.startsWith("dm:"); }
 function dmLabel(room, me) {
-  // room parts are lowercase, me may have original casing — compare lowercase
-  return room.slice(3).split(":").find(n => n !== me.toLowerCase()) ?? room;
+  // room parts are lowercase — compare lowercase, then capitalise for display
+  const name = room.slice(3).split(":").find(n => n !== me.toLowerCase()) ?? room;
+  return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
 // ── State ──────────────────────────────────────────────────
@@ -289,13 +290,20 @@ function renderOnlineUsers(usernames) {
     av.className = "avatar avatar-sm";
     setAvatar(av, name);
 
+    const isSelf = name.toLowerCase() === myUsername.toLowerCase();
+
     const label = document.createElement("span");
-    label.textContent = name + (name === myUsername ? " (you)" : "");
+    label.textContent = name + (isSelf ? " (you)" : "");
+
+    const hint = document.createElement("span");
+    hint.className = "dm-hint";
+    hint.textContent = "Message";
 
     li.appendChild(av);
     li.appendChild(label);
 
-    if (name !== myUsername) {
+    if (!isSelf) {
+      li.appendChild(hint);
       li.classList.add("clickable");
       li.title = `Message ${name}`;
       li.addEventListener("click", () => openDm(name));

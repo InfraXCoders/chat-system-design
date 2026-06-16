@@ -306,11 +306,18 @@ input::placeholder { color: var(--text-muted); }
   color: var(--text);
 }
 
-.online-item.clickable:hover::after {
-  content: "Message";
-  font-size: 0.7rem;
-  color: var(--accent);
+.dm-hint {
   margin-left: auto;
+  font-size: 0.68rem;
+  color: var(--accent);
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+
+.online-item.clickable:hover .dm-hint {
+  opacity: 1;
 }
 
 /* ── Avatar ───────────────────────────────────────────────── */
