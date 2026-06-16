@@ -1,10 +1,24 @@
 version: "3.9"
 
 services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # Uncomment when you run Certbot and have a real cert:
+      # - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - app
+    restart: unless-stopped
+
   app:
     build: .
-    ports:
-      - "80:3001"          # browser hits http://<vps-ip>  → container :3001
+    # No public port — Nginx is the only entry point
+    expose:
+      - "3001"
     environment:
       PORT: 3001
       DATABASE_URL: postgresql://chat:chat@postgres:5432/chatdb
