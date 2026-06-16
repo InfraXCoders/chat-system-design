@@ -27,7 +27,8 @@ function dmRoomId(a, b) {
 }
 function isDm(room) { return room.startsWith("dm:"); }
 function dmLabel(room, me) {
-  return room.slice(3).split(":").find(n => n !== me) ?? room;
+  // room parts are lowercase, me may have original casing — compare lowercase
+  return room.slice(3).split(":").find(n => n !== me.toLowerCase()) ?? room;
 }
 
 // ── State ──────────────────────────────────────────────────
@@ -186,8 +187,18 @@ function switchToChat(roomId) {
     chat.messages.forEach(m => renderBubble(m, true));
   }
 
-  // Update presence panel
-  renderOnlineUsers(chat.presence);
+  // People panel: only meaningful for group rooms.
+  // For DMs it would show only the current user (since the other person hasn't
+  // joined the DM room yet), making it look like they disappeared.
+  const peopleSection = document.querySelector(".sidebar-section-label:last-of-type");
+  if (isDm(roomId)) {
+    if (peopleSection) peopleSection.style.display = "none";
+    document.getElementById("online-list").style.display = "none";
+  } else {
+    if (peopleSection) peopleSection.style.display = "";
+    document.getElementById("online-list").style.display = "";
+    renderOnlineUsers(chat.presence);
+  }
 
   emptyState.classList.add("hidden");
   activeChat.classList.remove("hidden");
@@ -205,7 +216,7 @@ backBtn.addEventListener("click", () => {
 
 // ── Open a DM with another user ────────────────────────────
 function openDm(otherUser) {
-  if (otherUser === myUsername) return;
+  if (otherUser.toLowerCase() === myUsername.toLowerCase()) return;
   const roomId = dmRoomId(myUsername, otherUser);
   joinRoom(roomId);
 }
@@ -251,11 +262,12 @@ function handlePresence(room, usernames) {
   chat.presence = usernames;
 
   if (room === activeRoom) {
-    renderOnlineUsers(usernames);
-    const others = usernames.filter(n => n !== myUsername);
+    const others = usernames.filter(n => n.toLowerCase() !== myUsername.toLowerCase());
     if (isDm(room)) {
+      // DM: show the other person's status in header, don't touch the people panel
       chatStatus.textContent = others.length ? "online" : "offline";
     } else {
+      renderOnlineUsers(usernames);
       chatStatus.textContent = others.length === 0
         ? "just you"
         : others.length <= 3
