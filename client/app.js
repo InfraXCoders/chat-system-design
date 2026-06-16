@@ -97,17 +97,20 @@ async function startJoin() {
   setAvatar(myAvatar, myUsername);
   myNameLabel.textContent = myUsername;
 
-  connectWebSocket();
-  joinRoom(room);
+  connectWebSocket(room);
 }
 
 // ── WebSocket connection (one, shared across all rooms) ────
-function connectWebSocket() {
+function connectWebSocket(initialRoom) {
   socket = new WebSocket(WS_URL);
 
   socket.addEventListener("open", () => {
     console.log("[ws] connected");
     setInterval(() => send({ type: "heartbeat" }), 15_000);
+    // Join only after the socket is open — send() silently drops packets
+    // if readyState isn't OPEN yet, which is always the case synchronously
+    // after new WebSocket().
+    if (initialRoom) joinRoom(initialRoom);
   });
 
   socket.addEventListener("message", e => {
