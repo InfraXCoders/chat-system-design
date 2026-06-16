@@ -60,6 +60,7 @@ const messageInput  = document.getElementById("message-input");
 const sendBtn       = document.getElementById("send-btn");
 const sendIcon      = document.getElementById("send-icon");
 const micIcon       = document.getElementById("mic-icon");
+const backBtn       = document.getElementById("back-btn");
 
 // ── Join ───────────────────────────────────────────────────
 joinBtn.addEventListener("click", startJoin);
@@ -187,8 +188,17 @@ function switchToChat(roomId) {
 
   emptyState.classList.add("hidden");
   activeChat.classList.remove("hidden");
+
+  // On mobile, slide the chat panel into view
+  app.classList.add("chat-open");
+
   messageInput.focus();
 }
+
+// Back button — mobile only (CSS hides it on desktop)
+backBtn.addEventListener("click", () => {
+  app.classList.remove("chat-open");
+});
 
 // ── Open a DM with another user ────────────────────────────
 function openDm(otherUser) {

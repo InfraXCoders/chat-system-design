@@ -563,6 +563,9 @@ input::placeholder { color: var(--text-muted); }
 #send-btn:hover  { background: var(--accent-dim); }
 #send-btn:active { transform: scale(0.94); }
 
+/* Back button — hidden on desktop, shown on mobile */
+#back-btn { display: none; }
+
 /* Utility */
 .hidden { display: none !important; }
 
@@ -570,3 +573,65 @@ input::placeholder { color: var(--text-muted); }
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── Mobile ───────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Stack sidebar and chat panel on top of each other.
+     One is visible at a time — toggled by .chat-open on #app. */
+  #app {
+    position: relative;
+    overflow: hidden;
+  }
+
+  #sidebar {
+    width: 100%;
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    transition: transform 0.25s ease;
+  }
+
+  #chat-panel {
+    width: 100%;
+    position: absolute;
+    inset: 0;
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+    /* Respect iPhone home indicator and notch */
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* When a chat is open: slide sidebar out left, panel in */
+  #app.chat-open #sidebar   { transform: translateX(-100%); }
+  #app.chat-open #chat-panel { transform: translateX(0); }
+
+  /* Show back button on mobile */
+  #back-btn { display: flex; }
+
+  /* Bigger tap targets throughout */
+  .chat-item  { padding: 0.85rem 1rem; }
+  .online-item { padding: 0.65rem 1rem; }
+  .icon-btn   { padding: 0.6rem; }
+
+  /* Prevent iOS from zooming in on input focus (requires font-size ≥ 16px) */
+  input[type="text"],
+  #message-input { font-size: 16px; }
+
+  /* Bubbles can be wider on narrow screens */
+  .bubble { max-width: 82%; }
+
+  /* Messages padding */
+  #messages { padding: 1rem 4%; }
+
+  /* Input bar safe area */
+  #input-bar {
+    padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+  }
+
+  /* Sidebar sections: give chat list more room */
+  #chat-list  { max-height: 55%; }
+  #online-list { flex: 1; }
+
+  /* Hide decorative scrollbar on mobile */
+  ::-webkit-scrollbar { width: 0; }
+}
