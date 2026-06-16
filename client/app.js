@@ -1,13 +1,12 @@
-// Derive the WebSocket URL from the page's own location.
-// Served over http://<vps-ip>  → ws://<vps-ip>
-// Served over https://<domain> → wss://<domain>  (automatic when you add TLS)
-// Falls back to localhost:3001 when the file is opened directly from disk.
 const WS_URL =
   location.protocol === "file:"
     ? "ws://localhost:3001"
     : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`;
 
-// Avatar palette — consistent colour per username
+const API_BASE =
+  location.protocol === "file:" ? "http://localhost:3001" : "";
+
+// ── Avatar ─────────────────────────────────────────────────
 const PALETTE = [
   "#e53935","#d81b60","#8e24aa","#5e35b1","#1e88e5",
   "#00897b","#43a047","#fb8c00","#6d4c41","#546e7a",
@@ -17,23 +16,30 @@ function avatarColor(name) {
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
   return PALETTE[h % PALETTE.length];
 }
-function initials(name) {
-  return name.slice(0, 2).toUpperCase();
-}
 function setAvatar(el, name) {
   el.style.background = avatarColor(name);
-  el.textContent = initials(name);
+  el.textContent = name.slice(0, 2).toUpperCase();
+}
+
+// ── DM room ID (must match server logic) ──────────────────
+function dmRoomId(a, b) {
+  return `dm:${[a, b].sort().join(":")}`;
+}
+function isDm(room) { return room.startsWith("dm:"); }
+function dmLabel(room, me) {
+  return room.slice(3).split(":").find(n => n !== me) ?? room;
 }
 
 // ── State ──────────────────────────────────────────────────
-let socket = null;
-let myUsername = "";
-let myRoom = "";
-let myToken = "";
-let heartbeatInterval = null;
-let onlineUsers = [];
+let socket        = null;
+let myUsername    = "";
+let myToken       = "";
+let activeRoom    = null;
 
-// ── DOM ────────────────────────────────────────────────────
+// Map<roomId, { type:"room"|"dm", label, unread, messages:[], presenceUsers:[] }>
+const chats = new Map();
+
+// ── DOM refs ───────────────────────────────────────────────
 const joinOverlay   = document.getElementById("join-overlay");
 const app           = document.getElementById("app");
 const usernameInput = document.getElementById("username-input");
@@ -43,12 +49,13 @@ const myAvatar      = document.getElementById("my-avatar");
 const myNameLabel   = document.getElementById("my-name-label");
 const searchInput   = document.getElementById("search-input");
 const chatList      = document.getElementById("chat-list");
+const onlineList    = document.getElementById("online-list");
 const emptyState    = document.getElementById("empty-state");
 const activeChat    = document.getElementById("active-chat");
 const chatAvatar    = document.getElementById("chat-avatar");
 const chatName      = document.getElementById("chat-name");
 const chatStatus    = document.getElementById("chat-status");
-const messages      = document.getElementById("messages");
+const messagesEl    = document.getElementById("messages");
 const messageInput  = document.getElementById("message-input");
 const sendBtn       = document.getElementById("send-btn");
 const sendIcon      = document.getElementById("send-icon");
@@ -68,117 +75,52 @@ async function startJoin() {
   joinBtn.disabled = true;
   joinBtn.querySelector("span").textContent = "Connecting…";
 
-  // Get a signed JWT from the server before opening the WebSocket.
-  // The token binds this username to this session — the server won't
-  // accept a join packet without a valid token.
   try {
-    const base = location.protocol === "file:" ? "http://localhost:3001" : "";
-    const res  = await fetch(`${base}/auth`, {
+    const res = await fetch(`${API_BASE}/auth`, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ username, room }),
+      body:    JSON.stringify({ username }),
     });
     if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    myToken = data.token;
+    myToken    = (await res.json()).token;
+    myUsername = username;
   } catch (err) {
     joinBtn.disabled = false;
     joinBtn.querySelector("span").textContent = "Continue";
-    alert(`Could not connect: ${err.message}`);
+    alert(`Auth failed: ${err.message}`);
     return;
   }
 
-  myUsername = username;
-  myRoom     = room;
-
   joinOverlay.classList.add("hidden");
   app.classList.remove("hidden");
-
   setAvatar(myAvatar, myUsername);
   myNameLabel.textContent = myUsername;
 
-  upsertChatItem(room);
-  activateChatItem(room);
-
-  connect(room, username);
+  connectWebSocket();
+  joinRoom(room);
 }
 
-// ── Chat list ──────────────────────────────────────────────
-function upsertChatItem(room, preview = "", time = "") {
-  if (document.getElementById(`chat-item-${room}`)) return;
-
-  const li = document.createElement("li");
-  li.className = "chat-item";
-  li.id = `chat-item-${room}`;
-  li.dataset.room = room;
-
-  const av = document.createElement("div");
-  av.className = "avatar";
-  setAvatar(av, room);
-
-  const info = document.createElement("div");
-  info.className = "chat-item-info";
-  info.innerHTML = `
-    <div class="chat-item-top">
-      <span class="chat-item-name">#${room}</span>
-      <span class="chat-item-time">${time}</span>
-    </div>
-    <div class="chat-item-preview">${preview}</div>
-  `;
-
-  li.appendChild(av);
-  li.appendChild(info);
-  chatList.prepend(li);
-}
-
-function activateChatItem(room) {
-  document.querySelectorAll(".chat-item").forEach(el => el.classList.remove("active"));
-  const item = document.getElementById(`chat-item-${room}`);
-  if (item) item.classList.add("active");
-
-  // Show active chat panel
-  emptyState.classList.add("hidden");
-  activeChat.classList.remove("hidden");
-
-  // Update header
-  setAvatar(chatAvatar, room);
-  chatName.textContent = `#${room}`;
-  chatStatus.textContent = "connecting…";
-}
-
-function updateChatItemPreview(room, text, time) {
-  const item = document.getElementById(`chat-item-${room}`);
-  if (!item) return;
-  item.querySelector(".chat-item-preview").textContent = text;
-  item.querySelector(".chat-item-time").textContent = time;
-}
-
-// ── WebSocket ──────────────────────────────────────────────
-function connect(room, username) {
+// ── WebSocket connection (one, shared across all rooms) ────
+function connectWebSocket() {
   socket = new WebSocket(WS_URL);
 
   socket.addEventListener("open", () => {
-    send({ type: "join", token: myToken });
-    heartbeatInterval = setInterval(() => send({ type: "heartbeat" }), 15_000);
-    chatStatus.textContent = "connected";
+    console.log("[ws] connected");
+    setInterval(() => send({ type: "heartbeat" }), 15_000);
   });
 
   socket.addEventListener("message", e => {
     const pkt = JSON.parse(e.data);
-    if (pkt.type === "history")  renderHistory(pkt.payload);
-    if (pkt.type === "message")  renderMessage(pkt.payload, false);
-    if (pkt.type === "presence") renderPresence(pkt.payload);
-    if (pkt.type === "error")    appendSystem(`⚠ ${pkt.payload}`);
+    switch (pkt.type) {
+      case "history":  handleHistory(pkt.room, pkt.payload);       break;
+      case "message":  handleIncoming(pkt.payload);                break;
+      case "presence": handlePresence(pkt.room, pkt.payload);      break;
+      case "error":    appendSystem(activeRoom, `⚠ ${pkt.payload}`); break;
+    }
   });
 
   socket.addEventListener("close", () => {
-    clearInterval(heartbeatInterval);
-    chatStatus.textContent = "disconnected";
-    appendSystem("Connection lost. Refresh to reconnect.");
-  });
-
-  socket.addEventListener("error", () => {
-    appendSystem("Cannot reach server — is it running?");
+    if (activeRoom) appendSystem(activeRoom, "Disconnected. Refresh to reconnect.");
   });
 }
 
@@ -186,57 +128,218 @@ function send(obj) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(obj));
 }
 
-// ── Send message ───────────────────────────────────────────
-messageInput.addEventListener("input", () => {
-  const hasText = messageInput.value.trim().length > 0;
-  sendIcon.classList.toggle("hidden", !hasText);
-  micIcon.classList.toggle("hidden", hasText);
-});
-
-// Start with mic showing
-micIcon.classList.remove("hidden");
-sendIcon.classList.add("hidden");
-
-sendBtn.addEventListener("click", doSend);
-messageInput.addEventListener("keydown", e => e.key === "Enter" && !e.shiftKey && doSend());
-
-function doSend() {
-  const content = messageInput.value.trim();
-  if (!content) return;
-  send({ type: "message", content });
-  messageInput.value = "";
-  sendIcon.classList.add("hidden");
-  micIcon.classList.remove("hidden");
+// ── Room management ────────────────────────────────────────
+function joinRoom(roomId) {
+  if (!chats.has(roomId)) {
+    chats.set(roomId, {
+      type:     isDm(roomId) ? "dm" : "room",
+      label:    isDm(roomId) ? dmLabel(roomId, myUsername) : `#${roomId}`,
+      unread:   0,
+      messages: [],
+      presence: [],
+    });
+    renderChatListItem(roomId);
+  }
+  send({ type: "join", token: myToken, room: roomId });
+  switchToChat(roomId);
 }
 
-// ── Presence ───────────────────────────────────────────────
-function renderPresence(usernames) {
-  onlineUsers = usernames;
-  const others = usernames.filter(n => n !== myUsername);
-  if (others.length === 0) {
-    chatStatus.textContent = "just you";
-  } else if (others.length <= 3) {
-    chatStatus.textContent = `${others.join(", ")} online`;
+function leaveRoom(roomId) {
+  send({ type: "leave", room: roomId });
+  chats.delete(roomId);
+  removeChatListItem(roomId);
+}
+
+function switchToChat(roomId) {
+  if (!chats.has(roomId)) return;
+  activeRoom = roomId;
+
+  // Mark active in sidebar
+  document.querySelectorAll(".chat-item").forEach(el =>
+    el.classList.toggle("active", el.dataset.room === roomId)
+  );
+
+  // Clear unread
+  const chat = chats.get(roomId);
+  chat.unread = 0;
+  updateUnreadBadge(roomId);
+
+  // Update header
+  const isDirectMsg = isDm(roomId);
+  setAvatar(chatAvatar, chat.label);
+  chatName.textContent = chat.label;
+  chatStatus.textContent = isDirectMsg ? "Direct message" : "Group room";
+
+  // Re-render messages for this room
+  messagesEl.innerHTML = "";
+  lastDateStr = null;
+  if (chat.messages.length === 0) {
+    appendSystem(roomId, isDirectMsg
+      ? `Start a conversation with ${chat.label}.`
+      : "No messages yet — say hello! 👋"
+    );
   } else {
-    chatStatus.textContent = `${others.length} people online`;
+    chat.messages.forEach(m => renderBubble(m, true));
+  }
+
+  // Update presence panel
+  renderOnlineUsers(chat.presence);
+
+  emptyState.classList.add("hidden");
+  activeChat.classList.remove("hidden");
+  messageInput.focus();
+}
+
+// ── Open a DM with another user ────────────────────────────
+function openDm(otherUser) {
+  if (otherUser === myUsername) return;
+  const roomId = dmRoomId(myUsername, otherUser);
+  joinRoom(roomId);
+}
+
+// ── Incoming packet handlers ───────────────────────────────
+function handleHistory(room, msgs) {
+  const chat = chats.get(room);
+  if (!chat) return;
+  chat.messages = msgs;
+  if (room === activeRoom) {
+    messagesEl.innerHTML = "";
+    lastDateStr = null;
+    if (msgs.length === 0) {
+      appendSystem(room, isDm(room)
+        ? `Start a conversation with ${chat.label}.`
+        : "No messages yet — say hello! 👋"
+      );
+    } else {
+      msgs.forEach(m => renderBubble(m, true));
+    }
   }
 }
 
-// ── Render messages ────────────────────────────────────────
+function handleIncoming(msg) {
+  const chat = chats.get(msg.room);
+  if (!chat) return;
+
+  chat.messages.push(msg);
+  updateChatPreview(msg.room, msg);
+
+  if (msg.room === activeRoom) {
+    renderBubble(msg, false);
+  } else {
+    // Unread badge — message arrived in a background chat
+    chat.unread++;
+    updateUnreadBadge(msg.room);
+  }
+}
+
+function handlePresence(room, usernames) {
+  const chat = chats.get(room);
+  if (!chat) return;
+  chat.presence = usernames;
+
+  if (room === activeRoom) {
+    renderOnlineUsers(usernames);
+    const others = usernames.filter(n => n !== myUsername);
+    if (isDm(room)) {
+      chatStatus.textContent = others.length ? "online" : "offline";
+    } else {
+      chatStatus.textContent = others.length === 0
+        ? "just you"
+        : others.length <= 3
+          ? `${others.join(", ")} online`
+          : `${others.length} people online`;
+    }
+  }
+}
+
+// ── Render: online users panel ─────────────────────────────
+function renderOnlineUsers(usernames) {
+  onlineList.innerHTML = "";
+  usernames.forEach(name => {
+    const li = document.createElement("li");
+    li.className = "online-item";
+    li.dataset.user = name;
+
+    const av = document.createElement("div");
+    av.className = "avatar avatar-sm";
+    setAvatar(av, name);
+
+    const label = document.createElement("span");
+    label.textContent = name + (name === myUsername ? " (you)" : "");
+
+    li.appendChild(av);
+    li.appendChild(label);
+
+    if (name !== myUsername) {
+      li.classList.add("clickable");
+      li.title = `Message ${name}`;
+      li.addEventListener("click", () => openDm(name));
+    }
+    onlineList.appendChild(li);
+  });
+}
+
+// ── Render: sidebar chat list ──────────────────────────────
+function renderChatListItem(roomId) {
+  const chat = chats.get(roomId);
+  const li   = document.createElement("li");
+  li.className   = "chat-item";
+  li.id          = `chat-item-${roomId}`;
+  li.dataset.room = roomId;
+
+  const av = document.createElement("div");
+  av.className = isDm(roomId) ? "avatar avatar-dm" : "avatar avatar-room";
+  setAvatar(av, chat.label);
+
+  const info = document.createElement("div");
+  info.className = "chat-item-info";
+  info.innerHTML = `
+    <div class="chat-item-top">
+      <span class="chat-item-name">${chat.label}</span>
+      <span class="chat-item-time"></span>
+    </div>
+    <div class="chat-item-bottom">
+      <span class="chat-item-preview"></span>
+      <span class="unread-badge hidden"></span>
+    </div>
+  `;
+
+  li.appendChild(av);
+  li.appendChild(info);
+  li.addEventListener("click", () => switchToChat(roomId));
+  chatList.prepend(li);
+}
+
+function removeChatListItem(roomId) {
+  document.getElementById(`chat-item-${roomId}`)?.remove();
+}
+
+function updateChatPreview(roomId, msg) {
+  const item = document.getElementById(`chat-item-${roomId}`);
+  if (!item) return;
+  const preview = msg.username === myUsername
+    ? `You: ${msg.content}`
+    : isDm(roomId) ? msg.content : `${msg.username}: ${msg.content}`;
+  item.querySelector(".chat-item-preview").textContent = truncate(preview, 36);
+  item.querySelector(".chat-item-time").textContent = formatTime(new Date(msg.created_at));
+  // Bubble item to top
+  chatList.prepend(item);
+}
+
+function updateUnreadBadge(roomId) {
+  const item  = document.getElementById(`chat-item-${roomId}`);
+  if (!item) return;
+  const badge = item.querySelector(".unread-badge");
+  const count = chats.get(roomId)?.unread ?? 0;
+  badge.textContent = count > 99 ? "99+" : count;
+  badge.classList.toggle("hidden", count === 0);
+}
+
+// ── Render: message bubbles ────────────────────────────────
 let lastDateStr = null;
 
-function renderHistory(msgs) {
-  messages.innerHTML = "";
-  lastDateStr = null;
-  if (msgs.length === 0) {
-    appendSystem("No messages yet — say hello! 👋");
-    return;
-  }
-  msgs.forEach(m => renderMessage(m, true));
-}
-
-function renderMessage(msg, isHistory) {
-  const date = new Date(msg.created_at);
+function renderBubble(msg, isHistory) {
+  const date    = new Date(msg.created_at);
   const dateStr = date.toLocaleDateString(undefined, { weekday:"long", month:"short", day:"numeric" });
 
   if (dateStr !== lastDateStr) {
@@ -244,18 +347,17 @@ function renderMessage(msg, isHistory) {
     const chip = document.createElement("div");
     chip.className = "date-chip";
     chip.textContent = isToday(date) ? "Today" : isYesterday(date) ? "Yesterday" : dateStr;
-    messages.appendChild(chip);
+    messagesEl.appendChild(chip);
   }
 
   const isOut = msg.username === myUsername;
-
-  const row = document.createElement("div");
+  const row   = document.createElement("div");
   row.className = `msg-row ${isOut ? "out" : "in"}`;
 
   const bubble = document.createElement("div");
   bubble.className = "bubble";
 
-  if (!isOut) {
+  if (!isOut && !isDm(msg.room)) {
     const sender = document.createElement("div");
     sender.className = "bubble-sender";
     sender.style.color = avatarColor(msg.username);
@@ -264,7 +366,6 @@ function renderMessage(msg, isHistory) {
   }
 
   const text = document.createElement("div");
-  text.className = "bubble-text";
   text.textContent = msg.content;
   bubble.appendChild(text);
 
@@ -274,61 +375,66 @@ function renderMessage(msg, isHistory) {
   timeEl.className = "bubble-time";
   timeEl.textContent = formatTime(date);
   footer.appendChild(timeEl);
-
   if (isOut) {
     const ticks = document.createElement("span");
-    ticks.className = "ticks";
-    ticks.innerHTML = `<svg viewBox="0 0 16 11" fill="none"><path d="M1 5.5l4 4L14 1" stroke="#8696a0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    ticks.innerHTML = `<svg viewBox="0 0 16 11" fill="none" width="16" height="16"><path d="M1 5.5l4 4L14 1" stroke="#8696a0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
     footer.appendChild(ticks);
   }
-
   bubble.appendChild(footer);
   row.appendChild(bubble);
-  messages.appendChild(row);
-
-  // Update sidebar preview
-  const preview = isOut ? `You: ${msg.content}` : `${msg.username}: ${msg.content}`;
-  updateChatItemPreview(myRoom, truncate(preview, 38), formatTime(date));
+  messagesEl.appendChild(row);
 
   if (!isHistory) scrollToBottom();
 }
 
-function appendSystem(text) {
+function appendSystem(room, text) {
+  if (room !== activeRoom) return;
   const el = document.createElement("div");
   el.className = "sys-msg";
   el.textContent = text;
-  messages.appendChild(el);
+  messagesEl.appendChild(el);
   scrollToBottom();
 }
 
-// ── Helpers ────────────────────────────────────────────────
-function scrollToBottom() {
-  requestAnimationFrame(() => { messages.scrollTop = messages.scrollHeight; });
+// ── Send message ───────────────────────────────────────────
+messageInput.addEventListener("input", () => {
+  const has = messageInput.value.trim().length > 0;
+  sendIcon.classList.toggle("hidden", !has);
+  micIcon.classList.toggle("hidden", has);
+});
+micIcon.classList.remove("hidden");
+sendIcon.classList.add("hidden");
+
+sendBtn.addEventListener("click", doSend);
+messageInput.addEventListener("keydown", e => e.key === "Enter" && !e.shiftKey && doSend());
+
+function doSend() {
+  const content = messageInput.value.trim();
+  if (!content || !activeRoom) return;
+  send({ type: "message", room: activeRoom, content });
+  messageInput.value = "";
+  sendIcon.classList.add("hidden");
+  micIcon.classList.remove("hidden");
 }
 
-function formatTime(date) {
-  return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-}
-
-function isToday(date) {
-  const now = new Date();
-  return date.toDateString() === now.toDateString();
-}
-
-function isYesterday(date) {
-  const y = new Date(); y.setDate(y.getDate() - 1);
-  return date.toDateString() === y.toDateString();
-}
-
-function truncate(str, n) {
-  return str.length > n ? str.slice(0, n) + "…" : str;
-}
-
-// ── Search filter ──────────────────────────────────────────
+// ── Search ─────────────────────────────────────────────────
 searchInput.addEventListener("input", () => {
   const q = searchInput.value.toLowerCase();
   document.querySelectorAll(".chat-item").forEach(el => {
-    const name = el.dataset.room.toLowerCase();
-    el.style.display = name.includes(q) ? "" : "none";
+    el.style.display = el.dataset.room.toLowerCase().includes(q) ? "" : "none";
   });
 });
+
+// ── Helpers ────────────────────────────────────────────────
+function scrollToBottom() {
+  requestAnimationFrame(() => { messagesEl.scrollTop = messagesEl.scrollHeight; });
+}
+function formatTime(date) {
+  return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+function isToday(d) { return d.toDateString() === new Date().toDateString(); }
+function isYesterday(d) {
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  return d.toDateString() === y.toDateString();
+}
+function truncate(s, n) { return s.length > n ? s.slice(0, n) + "…" : s; }

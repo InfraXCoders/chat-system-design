@@ -8,7 +8,7 @@
 </head>
 <body>
 
-  <!-- ── Join modal ──────────────────────────────────────────────────── -->
+  <!-- ── Join modal ──────────────────────────────────────── -->
   <div id="join-overlay">
     <div id="join-card">
       <div id="join-logo">
@@ -37,13 +37,12 @@
     </div>
   </div>
 
-  <!-- ── Main app ────────────────────────────────────────────────────── -->
+  <!-- ── Main app ────────────────────────────────────────── -->
   <div id="app" class="hidden">
 
     <!-- Left sidebar -->
     <aside id="sidebar">
 
-      <!-- Sidebar header -->
       <div id="sidebar-header">
         <div id="my-avatar" class="avatar"></div>
         <span id="my-name-label"></span>
@@ -51,29 +50,30 @@
           <button class="icon-btn" title="New chat">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
-          <button class="icon-btn" title="Menu">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="5" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="19" r="1.2" fill="currentColor"/></svg>
-          </button>
         </div>
       </div>
 
-      <!-- Search -->
       <div id="search-wrap">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M16.5 16.5l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        <input id="search-input" type="text" placeholder="Search or start new chat" />
+        <input id="search-input" type="text" placeholder="Search chats" />
       </div>
 
-      <!-- Chat list -->
-      <ul id="chat-list">
-        <!-- populated by JS -->
-      </ul>
+      <!-- Open chats -->
+      <div class="sidebar-section-label">Chats</div>
+      <ul id="chat-list"></ul>
+
+      <!-- People online in current room — click to DM -->
+      <div class="sidebar-section-label">
+        People in room
+        <span id="online-count"></span>
+      </div>
+      <ul id="online-list"></ul>
 
     </aside>
 
     <!-- Right: chat panel -->
     <main id="chat-panel">
 
-      <!-- Empty state (before joining) -->
       <div id="empty-state">
         <div id="empty-icon">
           <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
@@ -84,19 +84,15 @@
             <circle cx="40" cy="32" r="2" fill="#00A884"/>
           </svg>
         </div>
-        <h2>Ripple Web</h2>
-        <p>Send and receive messages in real-time.<br/>Select a room to start chatting.</p>
+        <h2>Ripple</h2>
+        <p>Select a chat or click someone's name to start a DM.</p>
         <div id="tech-pills">
-          <span>WebSockets</span>
-          <span>Redis pub/sub</span>
-          <span>PostgreSQL</span>
+          <span>WebSockets</span><span>Redis pub/sub</span><span>PostgreSQL</span>
         </div>
       </div>
 
-      <!-- Active chat -->
       <div id="active-chat" class="hidden">
 
-        <!-- Chat header -->
         <div id="chat-header">
           <div id="chat-header-left">
             <div id="chat-avatar" class="avatar avatar-lg"></div>
@@ -107,24 +103,16 @@
           </div>
           <div id="chat-header-actions">
             <button class="icon-btn">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M16.5 16.5l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-            </button>
-            <button class="icon-btn">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="5" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="19" r="1.2" fill="currentColor"/></svg>
             </button>
           </div>
         </div>
 
-        <!-- Messages -->
         <div id="messages"></div>
 
-        <!-- Input bar -->
         <div id="input-bar">
           <button class="icon-btn round-btn" title="Emoji">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M8.5 14.5s1.5 2 3.5 2 3.5-2 3.5-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="9" cy="10" r="1" fill="currentColor"/><circle cx="15" cy="10" r="1" fill="currentColor"/></svg>
-          </button>
-          <button class="icon-btn round-btn" title="Attach">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
           <div id="input-wrap">
             <input id="message-input" type="text" placeholder="Type a message" autocomplete="off" />
