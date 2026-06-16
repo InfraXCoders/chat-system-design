@@ -29,6 +29,7 @@ function setAvatar(el, name) {
 let socket = null;
 let myUsername = "";
 let myRoom = "";
+let myToken = "";
 let heartbeatInterval = null;
 let onlineUsers = [];
 
@@ -59,27 +60,46 @@ joinBtn.addEventListener("click", startJoin);
   el.addEventListener("keydown", e => e.key === "Enter" && startJoin())
 );
 
-function startJoin() {
+async function startJoin() {
   const username = usernameInput.value.trim();
   const room     = roomInput.value.trim().toLowerCase().replace(/\s+/g, "-");
   if (!username || !room) return;
 
+  joinBtn.disabled = true;
+  joinBtn.querySelector("span").textContent = "Connecting…";
+
+  // Get a signed JWT from the server before opening the WebSocket.
+  // The token binds this username to this session — the server won't
+  // accept a join packet without a valid token.
+  try {
+    const base = location.protocol === "file:" ? "http://localhost:3001" : "";
+    const res  = await fetch(`${base}/auth`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ username, room }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    myToken = data.token;
+  } catch (err) {
+    joinBtn.disabled = false;
+    joinBtn.querySelector("span").textContent = "Continue";
+    alert(`Could not connect: ${err.message}`);
+    return;
+  }
+
   myUsername = username;
   myRoom     = room;
 
-  // Show app shell immediately
   joinOverlay.classList.add("hidden");
   app.classList.remove("hidden");
 
-  // Populate sidebar header
   setAvatar(myAvatar, myUsername);
   myNameLabel.textContent = myUsername;
 
-  // Add this room to the chat list and mark active
   upsertChatItem(room);
   activateChatItem(room);
 
-  // Connect WebSocket
   connect(room, username);
 }
 
@@ -138,7 +158,7 @@ function connect(room, username) {
   socket = new WebSocket(WS_URL);
 
   socket.addEventListener("open", () => {
-    send({ type: "join", room, username });
+    send({ type: "join", token: myToken });
     heartbeatInterval = setInterval(() => send({ type: "heartbeat" }), 15_000);
     chatStatus.textContent = "connected";
   });

@@ -2,6 +2,7 @@ import { WebSocketServer } from "ws";
 import { v4 as uuidv4 } from "uuid";
 import { pub, sub, setPresence, removePresence, getPresence, refreshPresence } from "./redis.js";
 import { saveMessage, getHistory } from "./db.js";
+import { verifyToken } from "./auth.js";
 
 const CHANNEL = "chat:messages";
 
@@ -91,9 +92,18 @@ export function setupWebSocket(server) {
   // ── Handlers ─────────────────────────────────────────────────────────────
 
   async function handleJoin(userId, packet, ws) {
-    const { room, username } = packet;
-    if (!room || !username) return;
+    // Verify JWT — username and room come from the signed token, not the client.
+    // This prevents anyone from claiming another user's name.
+    let claims;
+    try {
+      claims = verifyToken(packet.token);
+    } catch {
+      ws.send(JSON.stringify({ type: "error", payload: "Invalid or expired token. Please refresh." }));
+      ws.close(4001, "Unauthorized");
+      return;
+    }
 
+    const { username, room } = claims;
     const client = clients.get(userId);
 
     // Leave previous room if switching

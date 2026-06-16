@@ -6,6 +6,7 @@ import express from "express";
 import { rateLimit } from "express-rate-limit";
 import { initDb } from "./db.js";
 import { setupWebSocket } from "./websocket.js";
+import { authRouter } from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -28,6 +29,8 @@ app.use(rateLimit({
 
 // Health-check — useful when you later run multiple server instances
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
+
+authRouter(app);
 
 // Serve the static client (index.html / style.css / app.js) on the same
 // port as the WebSocket, so one container exposes the whole app.
