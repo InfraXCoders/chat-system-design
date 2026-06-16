@@ -148,6 +148,7 @@ function connect(room, username) {
     if (pkt.type === "history")  renderHistory(pkt.payload);
     if (pkt.type === "message")  renderMessage(pkt.payload, false);
     if (pkt.type === "presence") renderPresence(pkt.payload);
+    if (pkt.type === "error")    appendSystem(`⚠ ${pkt.payload}`);
   });
 
   socket.addEventListener("close", () => {

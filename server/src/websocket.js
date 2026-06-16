@@ -3,13 +3,33 @@ import { v4 as uuidv4 } from "uuid";
 import { pub, sub, setPresence, removePresence, getPresence, refreshPresence } from "./redis.js";
 import { saveMessage, getHistory } from "./db.js";
 
-// channel name for Redis pub/sub — all server instances subscribe to this
 const CHANNEL = "chat:messages";
+
+// Simple token-bucket rate limiter per WebSocket connection.
+// Allows a burst of up to MAX_TOKENS messages, then 1 message per REFILL_MS.
+const MAX_TOKENS  = 10;
+const REFILL_MS   = 1000;
+
+function makeRateLimiter() {
+  let tokens = MAX_TOKENS;
+  let lastRefill = Date.now();
+  return function allow() {
+    const now = Date.now();
+    const gained = Math.floor((now - lastRefill) / REFILL_MS);
+    if (gained > 0) {
+      tokens = Math.min(MAX_TOKENS, tokens + gained);
+      lastRefill = now;
+    }
+    if (tokens <= 0) return false;
+    tokens--;
+    return true;
+  };
+}
 
 export function setupWebSocket(server) {
   const wss = new WebSocketServer({ server });
 
-  // Local map: userId → { ws, room, username }
+  // Local map: userId → { ws, room, username, allow }
   const clients = new Map();
 
   // ── Subscribe to Redis ────────────────────────────────────────────────────
@@ -32,10 +52,16 @@ export function setupWebSocket(server) {
   // ── Connection handler ────────────────────────────────────────────────────
   wss.on("connection", (ws) => {
     const userId = uuidv4();
-    clients.set(userId, { ws, room: null, username: null });
+    const allow  = makeRateLimiter();
+    clients.set(userId, { ws, room: null, username: null, allow });
     console.log(`[ws] client connected  userId=${userId}`);
 
     ws.on("message", async (raw) => {
+      if (!allow()) {
+        ws.send(JSON.stringify({ type: "error", payload: "Rate limit exceeded. Slow down." }));
+        return;
+      }
+
       let packet;
       try {
         packet = JSON.parse(raw);
