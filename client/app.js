@@ -23,7 +23,7 @@ function setAvatar(el, name) {
 
 // ── DM room ID (must match server logic) ──────────────────
 function dmRoomId(a, b) {
-  return `dm:${[a, b].sort().join(":")}`;
+  return `dm:${[a, b].map(n => n.toLowerCase()).sort().join(":")}`;
 }
 function isDm(room) { return room.startsWith("dm:"); }
 function dmLabel(room, me) {

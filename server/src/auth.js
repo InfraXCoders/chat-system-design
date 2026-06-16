@@ -38,6 +38,7 @@ export function checkRoomAccess(room, username) {
 
   const parts = room.slice(3).split(":");
   if (parts.length !== 2) return "Invalid DM room format.";
-  if (!parts.includes(username)) return "You are not a participant in this DM.";
+  // sanitizeRoom lowercases the room, so compare against lowercase username
+  if (!parts.includes(username.toLowerCase())) return "You are not a participant in this DM.";
   return null;
 }
